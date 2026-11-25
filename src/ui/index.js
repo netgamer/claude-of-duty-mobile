@@ -97,6 +97,23 @@ export class UiSystem {
     this.banner = new Banner(this.chromeLayer);
     this.menu = new PauseMenu(this.root, ctx);
 
+    // ---- redeploy screen ---------------------------------------------------
+    // Built with the HUD (not on first death) so the death frame never has to
+    // lay out DOM, and its button is sized for a thumb, not a mouse.
+    this.death = el('div', 'ow-death', this.root);
+    const deathIn = el('div', 'ow-death-in', this.death);
+    el('div', 'ow-death-kicker', deathIn, 'OPERATOR DOWN');
+    el('div', 'ow-death-title', deathIn, 'KILLED IN ACTION');
+    el('div', 'ow-death-sub', deathIn, 'Reinforcements are waiting on your call');
+    this.deathBtn = el('button', 'ow-death-btn', deathIn, 'RESPAWN');
+    this.deathBtn.type = 'button';
+    this.deathBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.respawn();
+    });
+    this.deathOpen = false;
+
     this.health.onBeat = (i) => this.sfx('heartbeat', 0.35 + i * 0.5);
 
     /** Single source of truth for everything the HUD draws. */
@@ -237,6 +254,16 @@ export class UiSystem {
       if (d < (e.radius ?? 6) * 2.5) this.crosshair.onFlinch(0.6);
     });
 
+    // ---- death / respawn --------------------------------------------------
+    // `player:death` had no listener anywhere in the project: health clamped at
+    // 0, the flag went up and the match carried on. The player now gets a
+    // redeploy screen with a touch-sized button, and nothing about the game
+    // keeps running behind it (player controls go away in player/index.js and
+    // weapons stop reading the trigger while `dead`).
+    on('player:death', () => this.showDeath());
+    on('player:respawn', () => this.hideDeath());
+    on('flashbang', (e) => this.flashbang(e));
+
     on('player:state', (e) => {
       if (!e) return;
       const s = this.state;
@@ -367,6 +394,47 @@ export class UiSystem {
 
   pause() {
     this.menu.show();
+  }
+
+  /* ---------------------------------------------------------- death flow -- */
+
+  showDeath() {
+    if (this.deathOpen) return;
+    this.deathOpen = true;
+    this.death.classList.add('live');
+    this.clearPrompt();
+    this.crosshair.setVisible?.(false);
+    // The pad must not keep a held FIRE/ADS under a dead player, and the pad
+    // itself is faded (and inert) until the respawn click.
+    this.ctx.touch?.setEnabled?.(false);
+    this.ctx.touch?.clearHint?.();
+    this.sfx('death_sting', 0.8);
+  }
+
+  hideDeath() {
+    if (!this.deathOpen) return;
+    this.deathOpen = false;
+    this.death.classList.remove('live');
+    this.crosshair.setVisible?.(true);
+    this.ctx.touch?.setEnabled?.(true);
+  }
+
+  /** The respawn button (and the test harness). */
+  respawn() {
+    if (!this.deathOpen) return false;
+    const p = this.ctx.peek('player');
+    if (p?.respawn) p.respawn(0);
+    else this.hideDeath();
+    return true;
+  }
+
+  /** Flashbang white-out, scaled by distance to the blast. */
+  flashbang(e) {
+    const d = e?.position ? e.position.distanceTo(this._playerPos()) : 0;
+    const r = e?.radius ?? 3.2;
+    const strength = Math.max(0, 1 - d / (r * 1.6));
+    if (strength <= 0.02) return;
+    this.health.blind(strength);
   }
 
   resume() {

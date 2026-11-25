@@ -69,6 +69,7 @@ const CSS = `
 /* Paused: the controls are still there but must not read as available, and a
    translucent menu lets them show through unless they are faded down. */
 #ow-touch.paused .ow-t-btn,
+#ow-touch.paused .ow-t-throw,
 #ow-touch.paused .ow-t-stick-home,
 #ow-touch.paused .ow-t-stick,
 #ow-touch.paused .ow-t-pause { opacity: .14; transition: opacity .15s linear; }
@@ -153,6 +154,45 @@ const CSS = `
 .ow-t-crouch { right: 188px; bottom: 16px; width: 52px; height: 52px; }
 .ow-t-reload { right: 118px; bottom: 86px; width: 52px; height: 52px; }
 
+/* ---- throwables --------------------------------------------------------
+   One button per throwable, stacked in the free column left of the FIRE/ADS
+   pair (measured against the live touch + HUD rectangles at 844x390: the
+   column x 604-656, y 136-250 is empty — reload starts at y 252, crouch at
+   322, and the ammo readout stops at x 713). Portrait has no such column, so
+   the pair lies flat between the vitals/ammo rows and the reload/jump row. */
+.ow-t-throw {
+  position: absolute; width: 52px; height: 52px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  border: 1.5px solid rgba(232,242,248,.34);
+  background: radial-gradient(circle at 50% 36%, rgba(24,32,40,.30), rgba(7,10,13,.46) 78%);
+  box-shadow: 0 3px 10px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.10);
+  color: rgba(238,246,250,.92);
+  will-change: transform, background;
+  transition: background .06s linear, border-color .06s linear, opacity .12s linear;
+}
+.ow-t-throw svg { width: 15px; height: 19px; display: block; }
+.ow-t-throw .n {
+  position: absolute; right: 2px; bottom: 1px;
+  font-size: 11px; line-height: 1; letter-spacing: 0;
+  color: #ffd08a; text-shadow: 0 1px 2px rgba(0,0,0,.95);
+  font-variant-numeric: tabular-nums;
+}
+.ow-t-throw.on {
+  background: radial-gradient(circle at 50% 36%, rgba(255,196,90,.42), rgba(150,96,10,.36) 80%);
+  border-color: rgba(255,196,90,.95);
+}
+.ow-t-throw.empty { opacity: .30; }
+.ow-t-throw.empty .n { color: rgba(238,246,250,.55); }
+.ow-t-lethal { right: 188px; bottom: 144px; }
+.ow-t-tactical { right: 188px; bottom: 202px; }
+@media (max-aspect-ratio: 1/1) {
+  /* Portrait: measured free band x 180-300, bottom 174-226 (vitals end at
+     y 615, the reload row starts at 706 in a 390x844 viewport). */
+  .ow-t-lethal { right: auto; left: 185px; bottom: 174px; }
+  .ow-t-tactical { right: auto; left: 245px; bottom: 174px; }
+}
+
 .ow-t-pause {
   position: absolute; right: 14px; top: 14px; width: 44px; height: 44px;
   border-radius: 8px; border: 1px solid rgba(232,242,248,.34);
@@ -221,6 +261,23 @@ const CSS = `
 .ow-t-hint.live { opacity: .9; }
 `;
 
+// Same silhouettes the HUD's equipment row draws (ui/ammo.js), so the button
+// and the count in the corner read as the same object.
+const FRAG_ICON = `<svg viewBox="0 0 16 20" fill="rgba(255,255,255,.92)">
+  <path d="M6.4 0h3.2v2.1h1.5l1.1 2H3.8l1.1-2h1.5z"/>
+  <path d="M8 4.6c3.1 0 5.6 2.9 5.6 7.1S11.1 20 8 20 2.4 15.9 2.4 11.7 4.9 4.6 8 4.6z"/>
+  <g stroke="rgba(0,0,0,.5)" stroke-width="0.9">
+    <line x1="3" y1="9.5" x2="13" y2="9.5"/><line x1="3" y1="13" x2="13" y2="13"/>
+    <line x1="3" y1="16.2" x2="13" y2="16.2"/><line x1="8" y1="5" x2="8" y2="19.6"/>
+  </g>
+</svg>`;
+const FLASH_ICON = `<svg viewBox="0 0 16 20" fill="rgba(255,255,255,.92)">
+  <path d="M6.2 0h3.6v2.4H6.2z"/>
+  <path d="M4.2 3.1h7.6c.5 0 .9.4.9.9v13.4c0 1.4-1.1 2.6-2.6 2.6H5.9c-1.4 0-2.6-1.2-2.6-2.6V4c0-.5.4-.9.9-.9z"/>
+  <rect x="4.6" y="6.2" width="6.8" height="1.2" fill="rgba(0,0,0,.45)"/>
+  <rect x="4.6" y="9.1" width="6.8" height="1.2" fill="rgba(0,0,0,.45)"/>
+</svg>`;
+
 const GATE_HTML = `
   <div class="ow-t-gate-in">
     <div class="ow-t-gate-t">OVERWATCH</div>
@@ -286,6 +343,8 @@ export class TouchControls {
       <button class="ow-t-btn ow-t-jump" data-act="jump"><span class="gl">⤒</span><span class="lb">JUMP</span></button>
       <button class="ow-t-btn ow-t-crouch" data-act="crouch"><span class="gl">⤓</span><span class="lb">CROUCH</span></button>
       <button class="ow-t-btn ow-t-reload" data-act="reload"><span class="gl">⟳</span><span class="lb">RELOAD</span></button>
+      <button class="ow-t-throw ow-t-lethal" data-act="lethal">${FRAG_ICON}<span class="n">2</span></button>
+      <button class="ow-t-throw ow-t-tactical" data-act="tactical">${FLASH_ICON}<span class="n">1</span></button>
       <button class="ow-t-btn ow-t-ads" data-act="ads"><span class="gl">⊕</span><span class="lb">ADS</span></button>
       <button class="ow-t-btn ow-t-fire" data-act="fire"><span class="gl">◎</span><span class="lb">FIRE</span></button>
       <button class="ow-t-pause" data-act="pause"><span class="gl">❚❚</span></button>
@@ -301,6 +360,7 @@ export class TouchControls {
     this.hintEl = root.querySelector('#ow-t-hint');
     this.buttons = new Map();
     for (const b of root.querySelectorAll('[data-act]')) this.buttons.set(b.dataset.act, b);
+    this._counts = { lethal: -1, tactical: -1 };
   }
 
   _freezeForGate() {
@@ -328,10 +388,7 @@ export class TouchControls {
     // The pause menu is translucent: hide the transient hint and fade the pad so
     // neither reads through it.
     this._offPause = this.ctx.events?.on?.('ui:pause', (e) => {
-      if (e?.paused) {
-        this._hintTimer = 0;
-        this.hintEl.classList.remove('live');
-      }
+      if (e?.paused) this.clearHint();
     });
     // A page-level cancel (incoming call, app switch) must not leave the player
     // sprinting into a wall.
@@ -497,6 +554,8 @@ export class TouchControls {
       jump: 'Space',
       crouch: 'ControlLeft',
       pause: 'Escape',
+      lethal: 'KeyG',
+      tactical: 'KeyH',
     };
     const code = map[act];
     if (!code) return;
@@ -560,6 +619,12 @@ export class TouchControls {
     this._freezeForGate();
   }
 
+  /** Drop the transient hint immediately (death screen, pause). */
+  clearHint() {
+    this._hintTimer = 0;
+    this.hintEl?.classList.remove('live');
+  }
+
   hint(text, seconds = 2.5) {
     this.hintEl.textContent = text;
     this.hintEl.classList.add('live');
@@ -600,12 +665,28 @@ export class TouchControls {
     this.homeEl.classList.remove('off');
   }
 
-  /** Cheap per-frame tick for the transient hint. */
+  /** Cheap per-frame tick for the transient hint and the throwable counts. */
   update(dt) {
     if (this._hintTimer > 0) {
       this._hintTimer -= dt;
       if (this._hintTimer <= 0) this.hintEl.classList.remove('live');
     }
+    const hud = this.ctx.peek?.('weapons')?.getHudState?.();
+    if (hud) {
+      this._setCount('lethal', hud.lethalCount ?? 0);
+      this._setCount('tactical', hud.tacticalCount ?? 0);
+    }
+  }
+
+  /** Count badge + the greyed-out state, only on change. */
+  _setCount(act, n) {
+    if (this._counts[act] === n) return;
+    this._counts[act] = n;
+    const b = this.buttons.get(act);
+    if (!b) return;
+    const label = b.querySelector('.n');
+    if (label) label.textContent = String(n);
+    b.classList.toggle('empty', n <= 0);
   }
 
   state() {

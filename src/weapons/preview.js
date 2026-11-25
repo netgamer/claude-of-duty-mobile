@@ -27,6 +27,9 @@ const WEAPON = params.get('w') ?? 'rifle';
 const VIEW = params.get('view') ?? 'hero';
 const TIME = Number(params.get('t') ?? 0);
 const ARMS = params.get('arms') !== '0';
+// `?bright=1` raises the ambient so the dark studio does not hide the arms.
+// Review-only: it changes nothing about the pose or the materials themselves.
+const BRIGHT = params.get('bright') === '1';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -69,7 +72,7 @@ scene.add(fill);
 const rim = new THREE.DirectionalLight(0xffd9b0, 1.5);
 rim.position.set(1.4, -0.8, -3.4);
 scene.add(rim);
-scene.add(new THREE.HemisphereLight(0x91b4ff, 0x2b2620, 0.9));
+scene.add(new THREE.HemisphereLight(0x91b4ff, 0x2b2620, BRIGHT ? 5 : 0.9));
 
 const pmrem = new THREE.PMREMGenerator(renderer);
 pmrem.compileEquirectangularShader();
@@ -80,7 +83,7 @@ await materials.init({ config: { quality: 'ultra', q: { anisotropy: 16 } } });
 
 const env = pmrem.fromScene(scene, 0, 0.05, 30);
 scene.environment = env.texture;
-scene.environmentIntensity = 1.0;
+scene.environmentIntensity = BRIGHT ? 6 : 1.0;
 
 /* -------------------------------------------------------------- viewmodel -- */
 const events = {
@@ -118,13 +121,36 @@ if (!FIRST_PERSON) {
 
 const builders = { rifle: buildRifle, smg: buildSmg, pistol: buildPistol };
 const stats = {};
+// Review hook: `?gripL=fx,fy,fz,bx,by,bz,px,py,pz` overrides the support-hand
+// target before the build-time fingertip solve runs, so a candidate pose can be
+// measured and photographed without editing the model.
+const GRIP_OVERRIDE = params.get('gripL')?.split(',').map(Number) ?? null;
 for (const id of ['rifle', 'smg', 'pistol']) {
   const def = { ...WEAPON_DEFS[id] };
   def.cycleTime = 60 / def.rpm;
-  const entry = vm.addWeapon(builders[id](), def);
+  const model = builders[id]();
+  if (GRIP_OVERRIDE && id === WEAPON && model.nodes.gripL) {
+    const g = model.nodes.gripL;
+    if (GRIP_OVERRIDE.length >= 6) {
+      g.finger = [GRIP_OVERRIDE[0], GRIP_OVERRIDE[1], GRIP_OVERRIDE[2]];
+      g.back = [GRIP_OVERRIDE[3], GRIP_OVERRIDE[4], GRIP_OVERRIDE[5]];
+    }
+    if (GRIP_OVERRIDE.length >= 9) g.pos = [GRIP_OVERRIDE[6], GRIP_OVERRIDE[7], GRIP_OVERRIDE[8]];
+  }
+  const entry = vm.addWeapon(model, def);
   stats[id] = entry.tris;
 }
 vm.setActive(WEAPON);
+// Dev harness handles: pose review needs to measure the rig, not just look at it.
+window.__VM__ = vm;
+window.__THREE__ = THREE;
+// `?diag=1` draws every surface with a normal material so the pose can be read
+// as geometry instead of being lost in the studio's dark weapon shaders.
+if (params.get('diag') === '1') {
+  sky.visible = false;
+  scene.overrideMaterial = new THREE.MeshNormalMaterial({ flatShading: true });
+  scene.background = new THREE.Color(0x202428);
+}
 if (!ARMS) {
   vm.armL.root.visible = false;
   vm.armR.root.visible = false;
@@ -230,6 +256,20 @@ if (!FIRST_PERSON) {
   key.position.copy(camera.position).add(new THREE.Vector3(-1.6, 2.4, 0.9));
   key.target.position.copy(centre);
   key.target.updateMatrixWorld();
+} else {
+  // First-person views: the camera IS the eye and the viewmodel hangs a few
+  // hundred millimetres in front of it, so the studio rig above is behind the
+  // shooter and leaves the arms in silhouette. Build a camera-local rig instead
+  // — key over the left shoulder, cool fill from the right, warm rim from the
+  // muzzle end — which is what lets the hand pose be judged at all.
+  key.position.set(-0.55, 0.85, 0.75);
+  key.target.position.set(0, -0.08, -0.55);
+  key.target.updateMatrixWorld();
+  fill.position.set(0.8, 0.15, 0.5);
+  rim.position.set(0.1, 0.35, -1.5);
+  // The studio sky is only a gradient; without this the sleeves read as black.
+  scene.children.find((o) => o.isHemisphereLight)?.intensity !== undefined &&
+    (scene.children.find((o) => o.isHemisphereLight).intensity = 1.6);
 }
 
 /* ------------------------------------------------------------------ loop --- */

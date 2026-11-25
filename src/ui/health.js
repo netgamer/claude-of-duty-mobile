@@ -32,6 +32,9 @@ export class HealthFx {
     this.beat = el('div', 'ow-lowbeat', parent);
     this.desat = el('div', 'ow-desat', parent);
     this.flash = el('div', 'ow-hitflash', parent);
+    // Flashbang white-out: a separate layer from the red hit flash so a bright
+    // bang is white rather than pink, and so it can outlast it.
+    this.blind = el('div', 'ow-blind', parent);
 
     // ---- vitals widget ----------------------------------------------------
     this.vitals = el('div', 'ow-vitals', chrome);
@@ -59,6 +62,8 @@ export class HealthFx {
     this.flashT = 1;
     this.beatPhase = 0;
     this.beatEnergy = 0;
+    this.blindT = 1;
+    this.blindPeak = 0;
     this.regenT = 1;
     this.armourShown = 0;
     this._lastBeat = 0;
@@ -77,6 +82,12 @@ export class HealthFx {
 
   onRegenStart() {
     this.regenT = 0;
+  }
+
+  /** Flashbang: a white-out that decays over ~1.1 s from `strength` (0..1). */
+  blind(strength = 1) {
+    this.blindT = 0;
+    this.blindPeak = Math.max(this.blindPeak, clamp01(strength));
   }
 
   /** @param {object} s { health, maxHealth, armour, maxArmour, regen:bool } */
@@ -134,6 +145,18 @@ export class HealthFx {
       setStyle(this.flash, 'display', 'none');
     }
 
+    if (this.blindT < 1) {
+      this.blindT = Math.min(1, this.blindT + dt / 1.1);
+      // Hold full white for the first third, then fall away — that is the part
+      // that reads as being flashbanged rather than as a fade-in.
+      const a = this.blindPeak * (1 - ease.outCubic(clamp01((this.blindT - 0.18) / 0.82)));
+      setStyle(this.blind, 'opacity', a.toFixed(3));
+      setStyle(this.blind, 'display', a < 0.004 ? 'none' : '');
+    } else if (this.blindPeak) {
+      this.blindPeak = 0;
+      setStyle(this.blind, 'display', 'none');
+    }
+
     // --- vitals readout ---------------------------------------------------
     const maxH = s.maxHealth || 100;
     const hp = Math.max(0, Math.min(maxH, s.health ?? maxH));
@@ -173,6 +196,7 @@ export class HealthFx {
     this.beat.remove();
     this.desat.remove();
     this.flash.remove();
+    this.blind.remove();
     this.vitals.remove();
   }
 }

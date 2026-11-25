@@ -22,6 +22,9 @@ export const ACTIONS = {
   leanRight: ['KeyE'],
   swapWeapon: ['Digit1', 'Digit2', 'Tab'],
   grenade: ['KeyG'],
+  // Flashbang. The touch layout has a button per throwable, so the keyboard
+  // gets one key per throwable too rather than a hidden "selected type".
+  tactical: ['KeyH'],
   flashlight: ['KeyT'],
   pause: ['Escape'],
 };

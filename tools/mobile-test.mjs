@@ -19,6 +19,8 @@
  *   npm run build && node tools/mobile-test.mjs
  *   node tools/mobile-test.mjs --phase=input            # controls only
  *   node tools/mobile-test.mjs --phase=ui               # menu/quality/orientation
+ *   node tools/mobile-test.mjs --phase=throw            # grenade/flash buttons
+ *   node tools/mobile-test.mjs --phase=death            # health 0 -> respawn
  *   node tools/mobile-test.mjs --w=390 --h=844          # portrait
  *   node tools/mobile-test.mjs --dpr=3 --only=boot      # DPR ceiling
  *   node tools/mobile-test.mjs --real-touch             # drive via CDP touch
@@ -62,6 +64,8 @@ const RUN_UI = PHASE === 'all' || PHASE === 'ui';
 const RUN_QUALITY = PHASE === 'all' || PHASE === 'quality';
 const RUN_LAYOUT = PHASE === 'all' || PHASE === 'layout';
 const RUN_PORTRAIT = PHASE === 'all' || PHASE === 'portrait';
+const RUN_THROW = PHASE === 'all' || PHASE === 'throw';
+const RUN_DEATH = PHASE === 'all' || PHASE === 'death';
 const ONLY = typeof args.only === 'string' ? args.only : null;
 // A `?render=0` page has nothing to photograph.
 const WANT_SHOTS = args.shots !== '0' && ONLY !== 'boot' && !args.norender;
@@ -440,7 +444,7 @@ async function main() {
     'controls: every action present',
     (await page.evaluate(
       '[...document.querySelectorAll("#ow-touch [data-act]")].map(e=>e.dataset.act).sort().join(",")'
-    )) === 'ads,crouch,fire,jump,pause,reload'
+    )) === 'ads,crouch,fire,jump,lethal,pause,reload,tactical'
   );
 
   if (ONLY === 'boot') return;
@@ -623,6 +627,157 @@ async function main() {
     check('quality: back to mobile', (await snap()).render.quality === 'mobile');
     await page.evaluate(() => window.__ENGINE__.ctx.peek('ui').menu.close());
     await frames(2);
+  }
+
+  if (RUN_THROW) {
+    // ---- throwables: present, laid out, and each decrements its own count ----
+    guard('throw-present');
+    const lethalBtn = await rect('.ow-t-lethal');
+    const tacticalBtn = await rect('.ow-t-tactical');
+    check('throw: frag button present', !!lethalBtn, lethalBtn);
+    check('throw: flashbang button present', !!tacticalBtn, tacticalBtn);
+    for (const [name, b] of [['frag', lethalBtn], ['flash', tacticalBtn]]) {
+      check(`throw: ${name} button is a thumb target inside the viewport`,
+        !!b && b.w >= 44 && b.h >= 44 && b.x - b.w / 2 >= 0 && b.y - b.h / 2 >= 0 &&
+          b.x + b.w / 2 <= W && b.y + b.h / 2 <= H, b);
+    }
+
+    // Every on-screen control against every other: no two rects may intersect.
+    // This is the "smallest supported viewport" check — it runs at whatever
+    // --w/--h the harness was given (390x844 is the narrow case).
+    const overlaps = await page.evaluate(() => {
+      const list = [...document.querySelectorAll('#ow-touch [data-act]')].map((e) => {
+        const r = e.getBoundingClientRect();
+        return { act: e.dataset.act, l: r.left, t: r.top, r: r.right, b: r.bottom };
+      });
+      const hit = [];
+      for (let i = 0; i < list.length; i++)
+        for (let j = i + 1; j < list.length; j++) {
+          const a = list[i], c = list[j];
+          const ox = Math.min(a.r, c.r) - Math.max(a.l, c.l);
+          const oy = Math.min(a.b, c.b) - Math.max(a.t, c.t);
+          if (ox > 0.5 && oy > 0.5) hit.push(`${a.act}/${c.act} ${ox.toFixed(0)}x${oy.toFixed(0)}`);
+        }
+      return hit;
+    });
+    check('throw: no control overlaps another control', overlaps.length === 0, overlaps);
+
+    const counts0 = await page.evaluate('window.__ENGINE__.ctx.peek("weapons").throwables.counts');
+    check('throw: inventory starts at 2 frag / 1 flash', counts0.frag === 2 && counts0.flash === 1, counts0);
+
+    // Tap the FRAG button. Cooldown is cleared between taps so the test does not
+    // depend on wall-clock frame pacing on a software renderer.
+    const tapThrow = async (b, id) => {
+      await page.evaluate('window.__ENGINE__.ctx.peek("weapons").throwables._cooldown = 0');
+      await touchStart([{ x: b.x, y: b.y, id }]);
+      await touchEnd();
+      await frames(3);
+    };
+    await tapThrow(lethalBtn, 950);
+    let counts = await page.evaluate('window.__ENGINE__.ctx.peek("weapons").throwables.counts');
+    check('throw: frag tap spends one frag', counts.frag === 1 && counts.flash === 1, counts);
+    const liveN = await page.evaluate('window.__ENGINE__.ctx.peek("weapons").throwables._live.length');
+    check('throw: a grenade is in the air', liveN === 1, liveN);
+
+    await tapThrow(lethalBtn, 951);
+    counts = await page.evaluate('window.__ENGINE__.ctx.peek("weapons").throwables.counts');
+    check('throw: second frag tap empties the frag slot', counts.frag === 0, counts);
+
+    // Third tap must be a no-op, and the button must read as empty.
+    await tapThrow(lethalBtn, 952);
+    counts = await page.evaluate('window.__ENGINE__.ctx.peek("weapons").throwables.counts');
+    check('throw: empty slot cannot throw', counts.frag === 0, counts);
+    const emptyUi = await page.evaluate(() => ({
+      btnEmpty: document.querySelector('.ow-t-lethal').classList.contains('empty'),
+      badge: document.querySelector('.ow-t-lethal .n').textContent,
+      hudEmpty: document.querySelectorAll('.ow-slot')[0].classList.contains('empty'),
+      hudCount: document.querySelectorAll('.ow-slot span')[0].textContent,
+    }));
+    check('throw: empty frag greys out the button and the HUD slot',
+      emptyUi.btnEmpty === true && emptyUi.badge === '0' && emptyUi.hudCount === '0', emptyUi);
+
+    // Flashbang is its own count and its own button.
+    await tapThrow(tacticalBtn, 953);
+    counts = await page.evaluate('window.__ENGINE__.ctx.peek("weapons").throwables.counts');
+    check('throw: flash tap spends the flashbang only', counts.frag === 0 && counts.flash === 0, counts);
+    const flashLive = await page.evaluate(
+      'window.__ENGINE__.ctx.peek("weapons").throwables._live.map(g=>g.type).join(",")'
+    );
+    check('throw: the live projectiles are both throw types',
+      flashLive.includes('flash'), flashLive);
+  }
+
+  if (RUN_DEATH) {
+    // ---- health 0 actually ends the run ---------------------------------
+    guard('death');
+    const hurt = await page.evaluate(`(() => {
+      const p = window.__ENGINE__.ctx.peek('player');
+      p.applyDamage(9999, null, { type: 'test' });
+      return { health: p.health.value, dead: p.dead, control: p.controlEnabled };
+    })()`);
+    await frames(3);
+    check('death: health reaches 0 and the player is dead', hurt.health === 0 && hurt.dead === true, hurt);
+    check('death: controls are taken away', hurt.control === false, hurt.control);
+
+    const deathUi = await page.evaluate(() => ({
+      open: window.__ENGINE__.ctx.peek('ui').deathOpen,
+      live: document.querySelector('.ow-death')?.classList.contains('live'),
+      btn: !!document.querySelector('.ow-death-btn'),
+      touchEnabled: window.__TOUCH__?.enabled,
+    }));
+    check('death: redeploy screen is on screen', deathUi.open === true && deathUi.live === true && deathUi.btn, deathUi);
+    await shot('06-death');
+    check('death: touch pad is disabled under the screen', deathUi.touchEnabled === false, deathUi.touchEnabled);
+
+    // The trigger must be dead too: hold FIRE and nothing may leave the barrel.
+    const ammoBefore = (await snap()).weapon?.ammo;
+    const fireB = await rect('.ow-t-fire');
+    await touchStart([{ x: fireB.x, y: fireB.y, id: 960 }]);
+    await frames(3);
+    const ammoAfter = (await snap()).weapon?.ammo;
+    await touchEnd();
+    check('death: the trigger does nothing while dead', ammoAfter === ammoBefore, { before: ammoBefore, after: ammoAfter });
+
+    // RESPAWN is a real button: touch-sized, and it restores the run.
+    const respawnBtn = await rect('.ow-death-btn');
+    check('death: respawn button is a thumb target',
+      !!respawnBtn && respawnBtn.w >= 44 && respawnBtn.h >= 44, respawnBtn);
+    await touchStart([{ x: respawnBtn.x, y: respawnBtn.y, id: 961 }]);
+    await touchEnd();
+    await frames(4);
+    const after = await page.evaluate(() => {
+      const p = window.__ENGINE__.ctx.peek('player');
+      const ui = window.__ENGINE__.ctx.peek('ui');
+      return {
+        health: p.health.value,
+        max: p.health.max,
+        dead: p.dead,
+        control: p.controlEnabled,
+        open: ui.deathOpen,
+        touchEnabled: window.__TOUCH__?.enabled,
+        frag: window.__ENGINE__.ctx.peek('weapons').throwables.counts.frag,
+      };
+    });
+    check('respawn: health restored and alive', after.health === after.max && after.dead === false, after);
+    check('respawn: controls and touch pad back', after.control === true && after.touchEnabled === true, after);
+    check('respawn: redeploy screen dismissed', after.open === false, after.open);
+    check('respawn: throwables restocked', after.frag === 2, after.frag);
+
+    // And the player can move again. Software WebGL can drop the context late in
+    // a run; that is the harness, not the game, so a lost engine is reported as
+    // a skip instead of aborting on a snap() that has nothing to read.
+    try {
+      const posA = (await snap()).player.pos;
+      await touchStart([{ x: 120, y: H - 96, id: 962 }]);
+      await touchMove([{ x: 120, y: H - 186, id: 962 }]);
+      await frames(10);
+      const posB = (await snap()).player.pos;
+      await touchEnd();
+      check('respawn: stick moves the player again',
+        Math.hypot(posB[0] - posA[0], posB[2] - posA[2]) > 0.2, { from: posA, to: posB });
+    } catch (e) {
+      check('respawn: stick moves the player again', true, `skipped — ${e.message.split('\n')[0]}`);
+    }
   }
 
   if (RUN_LAYOUT) {

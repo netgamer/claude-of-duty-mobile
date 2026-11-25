@@ -597,6 +597,57 @@ const CSS = `
   background: linear-gradient(to right, transparent, rgba(255,255,255,.5), transparent);
 }
 
+/* ============================================================= death */
+/* The redeploy screen. Full-screen, opaque enough that the firefight behind
+   it cannot be mistaken for gameplay, and one button that is a thumb target on
+   a phone (44 px is the floor; this is 56 px on a 1080p-class phone). */
+.ow-death {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  display: grid; place-items: center; text-align: center;
+  background:
+    radial-gradient(ellipse 62% 58% at 50% 46%, rgba(38,4,2,.55), rgba(3,3,4,.90) 100%);
+  will-change: opacity; transition: opacity .28s linear;
+}
+.ow-death.live { pointer-events: auto; opacity: 1; }
+.ow-death-in { transform: translateY(-2%); }
+.ow-death-kicker {
+  font-size: calc(10px * var(--k)); letter-spacing: .42em;
+  color: rgba(255,120,96,.92);
+}
+.ow-death-title {
+  margin-top: calc(var(--u) * 2.2);
+  font-family: var(--fd); font-size: calc(52px * var(--k)); font-weight: 700;
+  letter-spacing: .16em; color: var(--ink);
+  text-shadow: 0 2px 18px rgba(0,0,0,.9), 0 0 calc(26px * var(--k)) rgba(190,30,16,.35);
+}
+.ow-death-sub {
+  margin-top: calc(var(--u) * 2.4); font-size: calc(10.5px * var(--k));
+  letter-spacing: .22em; color: var(--ink-2); text-transform: none;
+}
+.ow-death-btn {
+  margin-top: calc(var(--u) * 9);
+  appearance: none; cursor: pointer;
+  min-width: calc(210px * var(--k)); min-height: calc(56px * var(--k));
+  padding: calc(var(--u) * 3) calc(var(--u) * 8);
+  border: 1px solid rgba(255,176,42,.8);
+  background: linear-gradient(to bottom, rgba(255,176,42,.20), rgba(120,72,6,.20));
+  color: #ffd08a; font-family: var(--ff); font-weight: 700;
+  font-size: calc(12.5px * var(--k)); letter-spacing: .34em; text-indent: .34em;
+  text-transform: uppercase;
+  transition: background .1s linear, color .1s linear;
+}
+.ow-death-btn:hover, .ow-death-btn:active {
+  background: rgba(255,176,42,.34); color: #fff;
+}
+.ow-touch .ow-death-title { font-size: calc(40px * var(--k)); letter-spacing: .12em; }
+.ow-touch .ow-death-btn { min-width: 220px; min-height: 60px; }
+
+/* Flashbang white-out, driven from HealthFx.blind(). */
+.ow-blind {
+  position: absolute; inset: 0; pointer-events: none; display: none;
+  background: #fff; opacity: 0;
+}
+
 /* ================================================================== menu */
 .ow-menu {
   position:absolute; inset:0; pointer-events:auto;

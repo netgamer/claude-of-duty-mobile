@@ -188,6 +188,10 @@ export class PlayerSystem {
     on('damage:dealt', (e) => this._onDamageDealt(e));
     on('explosion', (e) => this._onExplosion(e));
     on('bullet:impact', (e) => this._onBulletImpact(e));
+    // Death is a real state, not just a flag: controls go away, the trigger goes
+    // quiet (weapons reads `player.dead`), and the HUD puts up the redeploy
+    // screen whose button comes back through respawn().
+    on('player:death', () => this._onDeath());
 
     console.info(
       `[player] spawn ${spawn.feet.x.toFixed(1)}, ${spawn.feet.y.toFixed(2)}, ` +
@@ -654,17 +658,30 @@ export class PlayerSystem {
     this._prev.state = '';
   }
 
+  _onDeath() {
+    this.setControlEnabled(false);
+    this.adsRequested = false;
+    this.adsAmount = 0;
+    this._prev.state = '';
+  }
+
   respawn(index = 0) {
     const world = this.ctx.peek('world');
     const sp = world?.spawn?.(index);
     this.health.reset(true);
-    if (!sp?.position) return;
-    const gy = this.physics.groundHeight(sp.position.x, sp.position.z, sp.position.y + 6);
-    const feetY = Number.isFinite(gy) ? gy + 0.03 : sp.position.y;
-    this.movement.yaw = sp.yaw ?? 0;
-    this.movement.pitch = 0;
-    this.movement.teleport(sp.position.x, feetY, sp.position.z);
-    this.rig.reset(STANCE.stand.eye);
+    if (sp?.position) {
+      const gy = this.physics.groundHeight(sp.position.x, sp.position.z, sp.position.y + 6);
+      const feetY = Number.isFinite(gy) ? gy + 0.03 : sp.position.y;
+      this.movement.yaw = sp.yaw ?? 0;
+      this.movement.pitch = 0;
+      this.movement.teleport(sp.position.x, feetY, sp.position.z);
+      this.rig.reset(STANCE.stand.eye);
+    }
+    // Back in the fight: hand control over and let every listener (HUD, touch,
+    // throwables) restore its own state.
+    this._prev.state = '';
+    this.setControlEnabled(true);
+    this.ctx.events.emit('player:respawn', { position: this.movement.position });
   }
 
   /** Named states for dev overlays and future shots. */

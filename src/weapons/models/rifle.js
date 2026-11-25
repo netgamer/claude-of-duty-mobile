@@ -432,10 +432,45 @@ export function buildRifle() {
        * The per-fingertip solve re-runs against this target at build time and just
        * uses less curl, so the contact is preserved.
        */
+      /**
+       * 2026-11-25 — the wrist was broken and this is the correction.
+       *
+       * The pose above passed every contact test (fingertips 0.4-0.7 mm off the
+       * tube) and still read on a phone as a hand folded sideways at the wrist:
+       * "왼쪽 손이 굉장히 많이 꺾여 있어". Measured on the shipped rig with the
+       * hip pose held at a fixed frame, the angle between the forearm
+       * (elbow -> wrist) and the hand's metacarpal axis was 64.4 deg and the
+       * palm normal pointed AWAY from the tube (dot with the wrist-to-axis
+       * direction +0.14). A wrist does not bend 64 deg sideways onto a grip it
+       * is supposed to be holding.
+       *
+       * Two things were wrong, and both came from taking the CYLINDER TANGENT as
+       * the hand's axis. A finger wrapping a 54 mm tube does lie along the
+       * tangent; the METACARPALS do not. Deriving the whole hand from the
+       * tangent put the metacarpals across the tube instead of along it, so the
+       * wrist had to make up the difference.
+       *
+       * What is here now:
+       *   finger  mostly forward (0.35, 0.10, -0.93): the hand continues the arm
+       *           and the fingers curl around the tube from the near-left side.
+       *   back    away from the tube and a little down/rear (-0.86, -0.35, 0.35),
+       *           so the PALM faces the handguard instead of the back of the
+       *           hand (palm-normal dot with the wrist-to-axis direction 0.83,
+       *           was 0.14).
+       *   pos     moved in from 100 mm to 55 mm off the bore: the wrist used to
+       *           stand a full palm width clear of the tube, which is what left
+       *           the palm 72 mm in the air with only the fingertips touching.
+       *
+       * MEASURED after the change, same fixed hip frame: wrist bend 26.4 deg,
+       * palm 14 mm off the surface, support arm at 98% extension (no locked
+       * elbow). ADS, which folds the arm hardest, went 80.2 -> 67.8 deg. The
+       * per-fingertip build-time solve re-runs against the new target, so the
+       * fingertips still land on the handguard; see Arm.fitToCylinder.
+       */
       gripL: {
-        pos: [-0.1, 0.0734, handZ + 0.0252],
-        finger: [0.8977, -0.3267, -0.2955],
-        back: [-0.2784, -0.7648, 0.581],
+        pos: [-0.055, 0.07, handZ + 0.0252],
+        finger: [0.35, 0.1, -0.93],
+        back: [-0.86, -0.35, 0.35],
       },
       /**
        * The handguard's collision profile, for the build-time fingertip contact

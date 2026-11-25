@@ -3,6 +3,7 @@ import { Rng } from '../core/rng.js';
 import { WeaponMaterials, ENV_OCCLUSION } from './materials.js';
 import { Viewmodel } from './viewmodel.js';
 import { ProjectileSim } from './ballistics.js';
+import { Throwables } from './throwables.js';
 import { WEAPON_DEFS, buildRecoilPattern, SPREAD_MODS } from './defs.js';
 import { buildRifle } from './models/rifle.js';
 import { buildSmg } from './models/smg.js';
@@ -108,6 +109,8 @@ export class WeaponSystem {
       this._shellQueue.push({ t: -1, pos: new THREE.Vector3(), vel: new THREE.Vector3() });
     }
     this._droppedMags = [];
+    /** Frag / flashbang inventory and its live projectiles (throwables.js). */
+    this.throwables = null;
     this._state = {
       ads: false,
       sprint: false,
@@ -176,6 +179,8 @@ export class WeaponSystem {
       ctx.events.on('player:land', (e) => this.viewmodel.land(Math.abs(e?.velocity ?? 3)))
     );
     this._off.push(ctx.events.on('player:jump', () => this.viewmodel.jump()));
+
+    this.throwables = new Throwables(ctx);
 
     this.stats = { tris, drawCalls: 0, live: 0, fired: 0 };
     console.info(
@@ -279,6 +284,8 @@ export class WeaponSystem {
     // normalised 0..1 rather than raw degrees.
     h.spread = Math.min(1, Math.max(0, this._spread / 6));
     h.firing = this.firing;
+    h.lethalCount = this.throwables?.lethalCount ?? 0;
+    h.tacticalCount = this.throwables?.tacticalCount ?? 0;
     return h;
   }
 
@@ -596,8 +603,15 @@ export class WeaponSystem {
     this._spread = Math.max(rest, this._spread - def.spreadDecay * dt * (1 + this.adsProgress));
     if (this._sinceShot > 0.6) this._shotIndex = 0;
 
+    // Grenade fuses run on their own clock: a grenade in the air still has to
+    // cook while the player is dead or the menu is open.
+    this.throwables?.update(dt);
+
     // ---- gather state ----------------------------------------------------
-    const live = !input.frozen && input.enabled !== false && this.debugMode === null;
+    // A dead player does not fire. Without this the trigger stayed live against
+    // a health bar that had already reached zero.
+    const live =
+      !input.frozen && input.enabled !== false && this.debugMode === null && player?.dead !== true;
     st.ads = live ? input.ads || player?.adsRequested === true : this.debugMode === 'ads';
     st.sprint = live ? player?.sprinting === true && this._sinceShot > 0.3 : false;
     st.speed = player?.horizontalSpeed ?? player?.speed ?? 0;
@@ -616,6 +630,9 @@ export class WeaponSystem {
       if (input.pressed('Digit3')) this.setWeapon('pistol');
       if (input.pressed('Tab')) this.nextWeapon();
       if (input.wheel) this.nextWeapon();
+      // Frag on G, flashbang on H — the same two codes the touch buttons send.
+      if (input.actionPressed('grenade')) this.throwables?.throw('frag');
+      if (input.actionPressed('tactical')) this.throwables?.throw('flash');
       this._runTrigger(dt, input.fire, input.firePressed, def, s);
       st.trigger = input.fire && this.canFire();
       // Auto-reload on a dry trigger pull, like every modern shooter.
@@ -837,6 +854,7 @@ export class WeaponSystem {
       if (p.body && this.physics?.removeRigidBody) this.physics.removeRigidBody(p.body);
     }
     this._droppedMags.length = 0;
+    this.throwables?.dispose();
     this.viewmodel?.dispose();
     this.mats?.dispose();
   }
