@@ -432,6 +432,22 @@ async function main() {
     await page.mouse.up();
     await frames(2);
     check('desktop: mouse click does not break the loop', (await snap()).frame > 0);
+
+    // Throwables are not a phone-only feature: KeyG / KeyH were the keys that
+    // were already reserved and unbound, so they must work here too. The
+    // 0.85 s throw cooldown is cleared between presses because a software
+    // renderer's simulated clock runs well behind wall time.
+    const c0 = await page.evaluate('window.__ENGINE__.ctx.peek("weapons").throwables.counts');
+    await page.evaluate('window.__ENGINE__.ctx.peek("weapons").throwables._cooldown = 0');
+    await page.keyboard.press('KeyG');
+    await frames(3);
+    const c1 = await page.evaluate('window.__ENGINE__.ctx.peek("weapons").throwables.counts');
+    check('desktop: G throws a frag grenade', c1.frag === c0.frag - 1 && c1.flash === c0.flash, { before: c0, after: c1 });
+    await page.evaluate('window.__ENGINE__.ctx.peek("weapons").throwables._cooldown = 0');
+    await page.keyboard.press('KeyH');
+    await frames(3);
+    const c2 = await page.evaluate('window.__ENGINE__.ctx.peek("weapons").throwables.counts');
+    check('desktop: H throws the flashbang', c2.flash === c1.flash - 1, { before: c1, after: c2 });
     return;
   }
 
